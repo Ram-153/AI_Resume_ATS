@@ -9,19 +9,22 @@ from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+# Initialize Flask
 app = Flask(__name__)
 
+# Upload folder
 UPLOAD_FOLDER = "resumes"
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 # -------- Resume Parsing --------
-
 def extract_text_from_pdf(pdf_path):
     text = ""
     with open(pdf_path, "rb") as file:
         reader = PyPDF2.PdfReader(file)
         for page in reader.pages:
-            text += page.extract_text()
+            text += page.extract_text() or ""
     return text
 
 def extract_text_from_docx(docx_path):
@@ -32,7 +35,6 @@ def extract_text_from_docx(docx_path):
     return text
 
 # -------- NLP Preprocessing --------
-
 def preprocess_text(text):
     text = text.lower()
     text = re.sub(r'[^a-zA-Z ]', ' ', text)
@@ -42,7 +44,6 @@ def preprocess_text(text):
     return " ".join(filtered_words)
 
 # -------- ATS Scoring --------
-
 def calculate_ats_score(resume_text, job_text):
     vectorizer = TfidfVectorizer()
     vectors = vectorizer.fit_transform([resume_text, job_text])
@@ -50,14 +51,16 @@ def calculate_ats_score(resume_text, job_text):
     return round(similarity * 100, 2)
 
 # -------- Routes --------
-
 @app.route("/", methods=["GET", "POST"])
 def index():
     rankings = []
 
     if request.method == "POST":
         resumes = request.files.getlist("resumes")
-        job_desc = request.form["job_description"]
+        job_desc = request.form.get("job_description", "")
+
+        if not job_desc:
+            return render_template("index.html", rankings=[], error="Please enter job description")
 
         cleaned_job = preprocess_text(job_desc)
 
@@ -85,5 +88,8 @@ def index():
 
     return render_template("index.html", rankings=rankings)
 
+# -------- Run App --------
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Use environment PORT (for Render / Heroku) or default 5000
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host="0.0.0.0", port=port)
