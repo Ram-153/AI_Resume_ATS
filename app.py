@@ -9,13 +9,22 @@ from nltk.tokenize import word_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+# ---------------- NLTK FIX FOR RENDER ----------------
+NLTK_DATA_DIR = os.path.join(os.getcwd(), "nltk_data")
+os.makedirs(NLTK_DATA_DIR, exist_ok=True)
+nltk.data.path.append(NLTK_DATA_DIR)
+
+nltk.download("punkt", download_dir=NLTK_DATA_DIR)
+nltk.download("punkt_tab", download_dir=NLTK_DATA_DIR)
+nltk.download("stopwords", download_dir=NLTK_DATA_DIR)
+# ----------------------------------------------------
+
 # Initialize Flask
 app = Flask(__name__)
 
 # Upload folder
 UPLOAD_FOLDER = "resumes"
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 # -------- Resume Parsing --------
@@ -29,10 +38,7 @@ def extract_text_from_pdf(pdf_path):
 
 def extract_text_from_docx(docx_path):
     doc = docx.Document(docx_path)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text + "\n"
-    return text
+    return "\n".join([para.text for para in doc.paragraphs])
 
 # -------- NLP Preprocessing --------
 def preprocess_text(text):
@@ -54,23 +60,28 @@ def calculate_ats_score(resume_text, job_text):
 @app.route("/", methods=["GET", "POST"])
 def index():
     rankings = []
+    error = None
 
     if request.method == "POST":
         resumes = request.files.getlist("resumes")
-        job_desc = request.form.get("job_description", "")
+        job_desc = request.form.get("job_description", "").strip()
 
         if not job_desc:
-            return render_template("index.html", rankings=[], error="Please enter job description")
+            error = "Please enter job description"
+            return render_template("index.html", rankings=[], error=error)
 
         cleaned_job = preprocess_text(job_desc)
 
         for resume in resumes:
+            if resume.filename == "":
+                continue
+
             file_path = os.path.join(app.config["UPLOAD_FOLDER"], resume.filename)
             resume.save(file_path)
 
-            if resume.filename.endswith(".pdf"):
+            if resume.filename.lower().endswith(".pdf"):
                 text = extract_text_from_pdf(file_path)
-            elif resume.filename.endswith(".docx"):
+            elif resume.filename.lower().endswith(".docx"):
                 text = extract_text_from_docx(file_path)
             else:
                 continue
@@ -84,12 +95,7 @@ def index():
                 "status": "Selected" if score >= 60 else "Not Selected"
             })
 
-        rankings = sorted(rankings, key=lambda x: x["score"], reverse=True)
+        rankings.sort(key=lambda x: x["score"], reverse=True)
 
-    return render_template("index.html", rankings=rankings)
+    return render_template("index.html", rankings=rankings, error=error)
 
-# -------- Run App --------
-if __name__ == "__main__":
-    # Use environment PORT (for Render / Heroku) or default 5000
-    port = int(os.environ.get("PORT", 5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
